@@ -1,54 +1,92 @@
 from math import floor
+import pprofile
 
 class Bitstring:
     def __init__(self):
-        self.string = ""
+        self.bytes = []
+        self.rbit = 7
+        self.lbit = 7
 
     def push(self, val):
         if val not in (0, 1):
             raise ValueError
-        self.string += str(val)
-    
+        if not self.bytes or self.rbit == 0:
+            self.bytes.append(val << 7)
+            self.rbit = 7
+        else:
+            self.rbit -= 1
+            self.bytes[-1] += (val << self.rbit)
+
     def pop(self):
-        if not self.string:
+        if not self.bytes:
             return 0
-        val = int(self.string[0])
-        self.string = self.string[1:]
-        return val
+        pop_bit = int(bool(self.bytes[0] & (1 << self.lbit)))
+        if self.lbit == 0:
+            self.bytes.pop(0)
+            self.lbit = 7
+        else:
+            self.lbit -= 1
+        return pop_bit
 
     def __repr__(self):
-        return self.string
+        return "".join("{:08b}".format(b) for b in self.bytes)
 
     def __str__(self):
-        return self.string
+        return "".join("{:08b}".format(b) for b in self.bytes)
 
     def __len__(self):
-        return len(self.string)
+        return len(self.bytes) * 8
+
 
 class Frequencies:
     def __init__(self, frq):
         self.frq = frq
+        self.num = len(frq)
+        self.intervals = {}
+        self.lefts = []
+        self.recalc()
+
+    def recalc(self):
+        self.total = sum(self.frq)
+        acc = 0
+        nxt = 0
+        for i, f in enumerate(self.frq):
+            nxt += f
+            self.intervals[i] = (acc/self.total, nxt/self.total)
+            self.lefts.append(acc)
+            acc = nxt
+
 
     def interval(self, sym):
-        total = 0
-        left  = 0
-        right = 0
-        for i, f in enumerate(self.frq):
-            if i == sym:
-                left = total
-                right = total + f
-            total += f
-        return (left/total, right/total)
+        return self.intervals[sym]
 
     def query(self, pt):
         fsum = sum(self.frq)
         point = pt * fsum
         acc = 0
-        for i, f in enumerate(self.frq):
-            nxt = acc + f
-            if nxt > point:
-                return (i, acc / fsum, nxt / fsum)
-            acc = nxt
+
+        ptr = self.num >> 1
+        jmp = ptr >> 1
+        while jmp > 4:
+            if self.lefts[ptr] > point:
+                ptr -= jmp
+            else:
+                ptr += jmp
+            jmp >>= 1
+
+        if self.lefts[ptr] > point:
+            while self.lefts[ptr] > point:
+                ptr -= 1
+            iv = self.intervals[ptr]
+            return (ptr, iv[0], iv[1])
+        else:
+            while self.lefts[ptr] <= point:
+                last = ptr
+                ptr += 1
+                if ptr == self.num:
+                    break
+            iv = self.intervals[last]
+            return (last, iv[0], iv[1])
 
 class Configuration:
     def __init__(self, order):
@@ -214,7 +252,7 @@ class Encoder:
 
 def test():
     frqs = Frequencies([82, 15, 28, 43, 130, 22, 2, 61, 7, 1, 1, 4, 24, 67, 75, 19, 1, 6, 63, 91, 28, 1, 24, 1, 2, 1, 1])
-    config = Configuration(16)
+    config = Configuration(24)
     enc = Encoder(config)
 
     intxt = "lookuponmyworksyemightyanddespair"
@@ -239,7 +277,7 @@ def test():
     print("Out:", symbols)
     print("".join([chr(s + 97) for s in symbols[:-1]]))
 
-def tex():
+def tex(filename):
     flist = []
     with open("counts") as inf:
         for line in inf:
@@ -250,7 +288,7 @@ def tex():
     config = Configuration(24)
     enc = Encoder(config)
 
-    with open("in.tex") as inf:
+    with open(filename) as inf:
         intxt = inf.read()
 
     inseq = [ord(c) for c in intxt] + [256]
@@ -278,5 +316,4 @@ def tex():
     print("".join([chr(s) for s in symbols]) == intxt)
 
 if __name__ == "__main__":
-    tex()
-
+    tex("in.tex")
