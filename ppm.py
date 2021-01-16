@@ -85,12 +85,12 @@ class Frequencies:
         if (ctx_map := ofrq.get(ctx)) is None:
             ctx_map = ofrq[ctx] = {self.config.esc_sym: 1}
 
-        if sym in ctx_map:
+        if sym in ctx_map: 
             ctx_map[sym] += 1
         else:
             ctx_map[sym] = 1
 
-    def interval(self, ctx, sym):
+    def interval(self, ctx, sym, debug=False):
         order     = len(ctx)
         ofrq      = self.frq[order]
         ctx_map   = ofrq.get(ctx)
@@ -105,6 +105,8 @@ class Frequencies:
             if sym_frq[0] == sym:
                 left  = acc
                 acc = right = acc + sym_frq[1]
+                if debug:
+                    print("Matched Interval\t{}\t\t{}".format(left, right))
             else:
                 acc += sym_frq[1]
 
@@ -113,7 +115,7 @@ class Frequencies:
 
         return (left/acc, right/acc)
 
-    def query(self, ctx, pt):
+    def query(self, ctx, pt, debug=False):
         order   = len(ctx)
         ofrq    = self.frq[order]
         ctx_map = ofrq.get(ctx)
@@ -122,6 +124,7 @@ class Frequencies:
             ctx_map = ofrq[ctx] = {self.config.esc_sym: 1}
 
         total  = sum(ctx_map.values())
+        if debug: print(pt, total)
         target = pt * total
 
         acc   = 0
@@ -134,10 +137,22 @@ class Frequencies:
                 sym   = sym_frq[0]
                 left  = acc
                 right = nxt
+                if debug:
+                    print("Matched Interval\t{}\t\t{}\t\t\t({})".format(left, right, target))
                 break
             acc = nxt
 
         return (sym, left/total, right/total)
+
+def sub_ctx(ctx, o):
+    if o == 0:
+        return ()
+    elif 0 < o <= len(ctx):
+        return tuple(ctx[-o:])
+    else:
+        print("???", o)
+        raise ValueError
+
 
 class Encoder:
     def __init__(self, config, frqs):
@@ -154,15 +169,25 @@ class Encoder:
 
     def encode_symbol(self, ctx, sym, debug=False):
         #print("Encode({})".format(len(ctx)), sym, )
-        sym_int = self.frqs.interval(ctx, sym)
+        sym_int = self.frqs.interval(ctx, sym, debug=debug)
         #print(sym_int)
         if sym_int is None:
             return False
 
+        if debug:
+            print()
+            print("\t\t\t\t\t\t{}\t{}".format(self.low, self.high))
+
         low_pt, high_pt = sym_int
+        if debug:
+            print("Interval\t\t{:.5f}\t{:.5f} ".format(low_pt, high_pt))
+
         span = self.high - self.low
+        if debug: print(span)
         self.high = self.low + floor(span * high_pt)  - 1
-        self.low  = self.low + floor(span * low_pt)
+        self.low  = self.low + floor(span * low_pt) + 1
+        
+        assert (self.high - self.low) > 0
 
         if debug:
             print("Encoder({})\t\t{}\t\t{}\t{}".format(len(ctx), sym, self.low, self.high))
@@ -191,31 +216,35 @@ class Encoder:
 
             else:
                 break
+
         return True
 
     def encode(self, sym, debug=False):
-        #print(self.ctx)
-        order = len(self.ctx)
+        if debug:
+            #print("Encoder Frequencies")
+            #pprint.pprint(self.frqs.frq[0])
+            pass 
+
+        order = top_order = len(self.ctx)
         if debug: print("Encode", sym, order)
-        done = False
+
         while order >= 0:
             ctx = () if not order else tuple(self.ctx[-order:])
-            if not done:
-                success = self.encode_symbol(ctx, sym, debug=debug)
-                if success:
-                    done = True
-                else:
-                    self.encode_symbol(ctx, self.config.esc_sym)
-                    self.frqs.record(ctx, self.config.esc_sym)
-              
-            self.frqs.record(ctx, sym, debug=debug)
+            if self.encode_symbol(ctx, sym, debug=debug):
+                break
+            else:
+                self.encode_symbol(ctx, self.config.esc_sym, debug=debug)
+                self.frqs.record(sub_ctx(self.ctx, order), self.config.esc_sym, debug=debug)
             order -= 1
 
         #print("Encoded: ", self.frqs.frq[1:])
         #print(self.frqs.frq[0])
 
+        for o in range(top_order + 1):
+            self.frqs.record(sub_ctx(self.ctx, o), sym, debug=debug)
+
         self.ctx.append(sym)
-        for i in range(len(self.ctx) - self.config.initial_order):
+        if len(self.ctx) > self.config.initial_order:
             self.ctx.pop(0)
 
     def conclude(self):
@@ -275,16 +304,25 @@ class Decoder:
 
     def decode_symbol(self, ctx, debug=False):
         #print("Decode({})".format(len(ctx)), self.num, self.frqs.frq[1:])
-        span = self.high - self.low
-        pt = (self.num - self.low) / span
-        sym, low_pt, high_pt = self.frqs.query(ctx, pt) 
-        #print(low_pt, high_pt)
-
-        self.high = self.low + floor(span * high_pt) - 1
-        self.low  = self.low + floor(span * low_pt)
 
         if debug:
-            print("Decoder({})\t{}\t\t{}\t{}".format(len(ctx), self.num, self.low, self.high))
+            print()
+            print("({})\t\t{}\t{}".format(self.num, self.low, self.high))
+
+        span = self.high - self.low
+        pt = (self.num - self.low) / span
+        sym, low_pt, high_pt = self.frqs.query(ctx, pt, debug=debug) 
+
+        if debug:
+            print("Interval\t\t{:.5f}\t{:.5f} ".format(low_pt, high_pt))
+
+        self.high = self.low + floor(span * high_pt) - 1
+        self.low  = self.low + floor(span * low_pt) + 1
+        
+        assert (self.high - self.low) > 0
+
+        if debug:
+            print("Decoder({})\t\t...{}\t{}\t{}".format(len(ctx), str(self.num)[-5:], self.low, self.high))
 
         while True:
             if not self.high & self.config.half_mask:
@@ -307,30 +345,26 @@ class Decoder:
 
         return sym
 
-    def sub_ctx(self, o):
-        if o == 0:
-            return ()
-        elif 0 < o <= len(self.ctx):
-            return tuple(self.ctx[-o:])
-        else:
-            print("???", o)
-            raise ValueError
-
     def decode(self, debug=False):
-        if debug: print("Decode", self.num)
+        if debug:
+            #print("Decoder Frequencies @", self.num)
+            #pprint.pprint(self.frqs.frq[0])
+            pass
+
         order = top_order = len(self.ctx)
 
         while order >= 0:
-            ctx = self.sub_ctx(order)
+            ctx = sub_ctx(self.ctx, order)
             sym = self.decode_symbol(ctx, debug=debug)
             if sym != self.config.esc_sym:
-                for o in range(top_order, -1, -1):
-                    self.frqs.record(self.sub_ctx(o), sym, debug=debug)
                 break
             else:
-                self.frqs.record(ctx, self.config.esc_sym)
+                self.frqs.record(sub_ctx(self.ctx, order), self.config.esc_sym, debug=debug)
             order -= 1
-        
+
+        for o in range(top_order + 1):
+            self.frqs.record(sub_ctx(self.ctx, o), sym, debug=debug)
+   
         self.ctx.append(sym)
         for i in range(len(self.ctx) - self.config.initial_order):
             self.ctx.pop(0)
@@ -345,13 +379,13 @@ def tex(filename):
     flist = flist[:256]
     flist.append(2)
 
-    config = Configuration(4, 256, 64)
+    config = Configuration(5, 256, 32)
     frqs = Frequencies(config)
 
     for i, f in enumerate(flist):
         frqs.overwrite((), i, f)
 
-    check = 42 
+    check = -1 #6556 #296 
 
     enc = Encoder(config, frqs)
     frc = None
@@ -359,7 +393,12 @@ def tex(filename):
     with open(filename, "rb") as inf:
         while (chunk := inf.read(2048)):
             for byte in chunk:
-                enc.encode(int(byte), debug = False)
+                if in_length+1 == check:
+                    print("Encoder Check: {}".format(chr(byte)))
+                    frc = copy.deepcopy(enc.frqs.frq)
+                if in_length % 4196 == 0:
+                    print(in_length)
+                enc.encode(int(byte), debug = ((in_length+1) == check))
                 in_length += 1
         enc.encode(config.eof_sym)
 
@@ -397,17 +436,28 @@ def tex(filename):
     symbols = []
     i = 1
     while True:
-        if i % 131072 == 0:
+        if i == check:
+            print("Decoder Check")
+            print(dec.frqs.frq == frc)
+
+        if i % 4196 == 0:
             print(i)
-        sym = dec.decode()
-        if sym == config.eof_sym or sym is None:
+
+        sym = dec.decode(debug=(i==check))
+        if sym == config.eof_sym:
             break
+        if sym == None:
+            print("Decoder crash i={}".format(i))
+            break
+
         symbols.append(sym)
+
+        #print(chr(sym), end="")
         i += 1
 
-    with open("out.tex", "wb") as outf:
+    with open("tb_out.tex", "wb") as outf:
         outf.write(bytes(symbols))
 
 if __name__ == "__main__":
-    tex("test.tex")
+    tex("texbook.tex")
 
