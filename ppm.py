@@ -77,8 +77,9 @@ class Frequencies:
 
         ctx_map[sym] = f
 
-    def record(self, ctx, sym):
-        #print("Recording {} with context {}".format(sym, ctx))
+    def record(self, ctx, sym, debug=False):
+        if debug:
+            print("Recording {} with context {}".format(sym, ctx))
         ofrq = self.frq[len(ctx)]
 
         if (ctx_map := ofrq.get(ctx)) is None:
@@ -96,9 +97,6 @@ class Frequencies:
 
         if ctx_map is None:
             ctx_map = ofrq[ctx] = {self.config.esc_sym: 1}
-            if sym == self.config.esc_sym:
-                return (0, 1)
-            return None
 
         acc   = 0
         left  = 0
@@ -121,7 +119,7 @@ class Frequencies:
         ctx_map = ofrq.get(ctx)
 
         if ctx_map is None:
-            return (self.config.esc_sym, 0, 1)
+            ctx_map = ofrq[ctx] = {self.config.esc_sym: 1}
 
         total  = sum(ctx_map.values())
         target = pt * total
@@ -199,15 +197,18 @@ class Encoder:
         #print(self.ctx)
         order = len(self.ctx)
         if debug: print("Encode", sym, order)
+        done = False
         while order >= 0:
             ctx = () if not order else tuple(self.ctx[-order:])
-            success = self.encode_symbol(ctx, sym, debug=debug)
-            if success:
-                self.frqs.record(ctx, sym)
-                break
-            else:
-                self.encode_symbol(ctx, self.config.esc_sym, debug=debug)
-                self.frqs.record(ctx, sym)
+            if not done:
+                success = self.encode_symbol(ctx, sym, debug=debug)
+                if success:
+                    done = True
+                else:
+                    self.encode_symbol(ctx, self.config.esc_sym)
+                    self.frqs.record(ctx, self.config.esc_sym)
+              
+            self.frqs.record(ctx, sym, debug=debug)
             order -= 1
 
         #print("Encoded: ", self.frqs.frq[1:])
@@ -306,19 +307,30 @@ class Decoder:
 
         return sym
 
+    def sub_ctx(self, o):
+        if o == 0:
+            return ()
+        elif 0 < o <= len(self.ctx):
+            return tuple(self.ctx[-o:])
+        else:
+            print("???", o)
+            raise ValueError
+
     def decode(self, debug=False):
         if debug: print("Decode", self.num)
         order = top_order = len(self.ctx)
 
         while order >= 0:
-            ctx = () if not order else tuple(self.ctx[-order:])
+            ctx = self.sub_ctx(order)
             sym = self.decode_symbol(ctx, debug=debug)
             if sym != self.config.esc_sym:
                 for o in range(top_order, -1, -1):
-                    self.frqs.record(() if not o else tuple(self.ctx[-o:]), sym)
+                    self.frqs.record(self.sub_ctx(o), sym, debug=debug)
                 break
+            else:
+                self.frqs.record(ctx, self.config.esc_sym)
             order -= 1
-        #print(self.frqs.frq[0])
+        
         self.ctx.append(sym)
         for i in range(len(self.ctx) - self.config.initial_order):
             self.ctx.pop(0)
@@ -333,7 +345,7 @@ def tex(filename):
     flist = flist[:256]
     flist.append(2)
 
-    config = Configuration(4, 256, 32)
+    config = Configuration(4, 256, 64)
     frqs = Frequencies(config)
 
     for i, f in enumerate(flist):
@@ -347,11 +359,7 @@ def tex(filename):
     with open(filename, "rb") as inf:
         while (chunk := inf.read(2048)):
             for byte in chunk:
-                if in_length == check:
-                    #pprint.pprint(enc.frqs.frq)
-                    frc = copy.deepcopy(enc.frqs.frq)
-                    print(chr(int(byte)))
-                enc.encode(int(byte), debug = (in_length == check))
+                enc.encode(int(byte), debug = False)
                 in_length += 1
         enc.encode(config.eof_sym)
 
@@ -387,23 +395,19 @@ def tex(filename):
 
     dec = Decoder(config, frqs, bstr)
     symbols = []
-    i = 0
+    i = 1
     while True:
-        if i == check:
-            #pprint.pprint(dec.frqs.frq)
-            print(dec.frqs.frq == frc)
-            print(chr(sym))
-        sym = dec.decode(debug=(i == check))
-        if sym == config.eof_sym:
+        if i % 131072 == 0:
+            print(i)
+        sym = dec.decode()
+        if sym == config.eof_sym or sym is None:
             break
         symbols.append(sym)
         i += 1
-        #print(chr(sym), end="")
 
-    return
     with open("out.tex", "wb") as outf:
         outf.write(bytes(symbols))
 
 if __name__ == "__main__":
-    tex("small.tex")
+    tex("test.tex")
 
