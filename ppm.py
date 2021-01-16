@@ -101,14 +101,14 @@ class Frequencies:
         acc   = 0
         left  = 0
         right = 0
-        for i, sym_frq in enumerate(ctx_map.items()):
-            if sym_frq[0] == sym:
+        for i, (s, f) in enumerate(ctx_map.items()):
+            if s == sym:
                 left  = acc
-                acc = right = acc + sym_frq[1]
+                acc = right = acc + f
                 if debug:
                     print("Matched Interval\t{}\t\t{}".format(left, right))
             else:
-                acc += sym_frq[1]
+                acc += f
 
         if not right:
             return None
@@ -131,10 +131,9 @@ class Frequencies:
         left  = 0
         right = 0
         sym   = None
-        for i, sym_frq in enumerate(ctx_map.items()):
-            nxt = acc + sym_frq[1]
+        for i, (sym, f) in enumerate(ctx_map.items()):
+            nxt = acc + f
             if nxt > target:
-                sym   = sym_frq[0]
                 left  = acc
                 right = nxt
                 if debug:
@@ -144,13 +143,13 @@ class Frequencies:
 
         return (sym, left/total, right/total)
 
-def sub_ctx(ctx, o):
-    if o == 0:
+def sub_ctx(ctx, order):
+    if not order: 
         return ()
-    elif 0 < o <= len(ctx):
-        return tuple(ctx[-o:])
+    elif order <= len(ctx):
+        return tuple(ctx[-order:])
     else:
-        print("???", o)
+        print("???", order)
         raise ValueError
 
 
@@ -168,9 +167,7 @@ class Encoder:
         self.bstr     = Bitstring()
 
     def encode_symbol(self, ctx, sym, debug=False):
-        #print("Encode({})".format(len(ctx)), sym, )
         sym_int = self.frqs.interval(ctx, sym, debug=debug)
-        #print(sym_int)
         if sym_int is None:
             return False
 
@@ -220,11 +217,6 @@ class Encoder:
         return True
 
     def encode(self, sym, debug=False):
-        if debug:
-            #print("Encoder Frequencies")
-            #pprint.pprint(self.frqs.frq[0])
-            pass 
-
         order = top_order = len(self.ctx)
         if debug: print("Encode", sym, order)
 
@@ -236,9 +228,6 @@ class Encoder:
                 self.encode_symbol(ctx, self.config.esc_sym, debug=debug)
                 self.frqs.record(sub_ctx(self.ctx, order), self.config.esc_sym, debug=debug)
             order -= 1
-
-        #print("Encoded: ", self.frqs.frq[1:])
-        #print(self.frqs.frq[0])
 
         for o in range(top_order + 1):
             self.frqs.record(sub_ctx(self.ctx, o), sym, debug=debug)
@@ -303,8 +292,6 @@ class Decoder:
             self.num = (self.num - self.config.half) + nxt_bit
 
     def decode_symbol(self, ctx, debug=False):
-        #print("Decode({})".format(len(ctx)), self.num, self.frqs.frq[1:])
-
         if debug:
             print()
             print("({})\t\t{}\t{}".format(self.num, self.low, self.high))
@@ -346,11 +333,6 @@ class Decoder:
         return sym
 
     def decode(self, debug=False):
-        if debug:
-            #print("Decoder Frequencies @", self.num)
-            #pprint.pprint(self.frqs.frq[0])
-            pass
-
         order = top_order = len(self.ctx)
 
         while order >= 0:
@@ -385,26 +367,14 @@ def tex(filename):
     for i, f in enumerate(flist):
         frqs.overwrite((), i, f)
 
-    check = -1 #6556 #296 
-
     enc = Encoder(config, frqs)
-    frc = None
     in_length = 0
     with open(filename, "rb") as inf:
         while (chunk := inf.read(2048)):
             for byte in chunk:
-                if in_length+1 == check:
-                    print("Encoder Check: {}".format(chr(byte)))
-                    frc = copy.deepcopy(enc.frqs.frq)
-                if in_length % 4196 == 0:
-                    print(in_length)
-                enc.encode(int(byte), debug = ((in_length+1) == check))
+                enc.encode(int(byte))
                 in_length += 1
         enc.encode(config.eof_sym)
-
-    #for byte in bytes("Hello! How are you today?", "utf8"):
-    #    enc.encode(int(byte))
-    #enc.encode(config.eof_sym)
 
     result = enc.conclude()
 
@@ -434,26 +404,16 @@ def tex(filename):
 
     dec = Decoder(config, frqs, bstr)
     symbols = []
-    i = 1
     while True:
-        if i == check:
-            print("Decoder Check")
-            print(dec.frqs.frq == frc)
-
-        if i % 4196 == 0:
-            print(i)
-
-        sym = dec.decode(debug=(i==check))
+        sym = dec.decode()
+        
         if sym == config.eof_sym:
             break
         if sym == None:
-            print("Decoder crash i={}".format(i))
+            print("Decoder Crash :-(")
             break
-
+        
         symbols.append(sym)
-
-        #print(chr(sym), end="")
-        i += 1
 
     with open("tb_out.tex", "wb") as outf:
         outf.write(bytes(symbols))
