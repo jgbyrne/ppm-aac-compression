@@ -354,14 +354,10 @@ class Decoder:
         return sym
 
 def tex(filename):
-    flist = []
-    with open("counts") as inf:
-        for line in inf:
-            flist.append(int(line.strip()))
-    flist = flist[:256]
+    flist = [1] * 256
     flist.append(2)
 
-    config = Configuration(5, 256, 32)
+    config = Configuration(4, 256, 32)
     frqs = Frequencies(config)
 
     for i, f in enumerate(flist):
