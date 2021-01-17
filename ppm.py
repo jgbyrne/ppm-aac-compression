@@ -77,7 +77,8 @@ class Frequencies:
     def overwrite(self, ctx, sym, f):
         ofrq = self.frq[len(ctx)]
 
-        if (ctx_map := ofrq.get(ctx)) is None:
+        ctx_map = ofrq.get(ctx)
+        if ctx_map is None:
             ctx_map = ofrq[ctx] = {self.config.esc_sym: 1}
 
         ctx_map[sym] = f
@@ -87,7 +88,8 @@ class Frequencies:
             print("Recording {} with context {}".format(sym, ctx))
         ofrq = self.frq[len(ctx)]
 
-        if (ctx_map := ofrq.get(ctx)) is None:
+        ctx_map = ofrq.get(ctx)
+        if ctx_map is None:
             ctx_map = ofrq[ctx] = {self.config.esc_sym: 1}
 
         if sym in ctx_map: 
@@ -358,72 +360,14 @@ class Decoder:
 
         return sym
 
-def tex(filename):
-    flist = [1] * 256
-    flist.append(2)
-
-    config = Configuration(4, 256, 32)
-    frqs = Frequencies(config)
-
-    for i, f in enumerate(flist):
-        frqs.overwrite((), i, f)
-
-    enc = Encoder(config, frqs)
-    in_length = 0
-    with open(filename, "rb") as inf:
-        while True:
-            chunk = inf.read(2048)
-            if not chunk:
-                break
-
-            for byte in chunk:
-                enc.encode(int(byte))
-                in_length += 1
-
-        enc.encode(config.eof_sym)
-
-    result = enc.conclude()
-
-    out_length = len(result)
-    print("Encoded {} bytes in {} bits ({:.3f})".format(in_length,
-                                                        out_length,
-                                                        ((out_length / 8) / in_length)))
-
-    with open("encoded.lz", "wb") as outf:
-        outf.write(bytes(result.bytes))
-
-    del result
-    del frqs
-
-    frqs = Frequencies(config)
-
-    for i, f in enumerate(flist):
-        frqs.overwrite((), i, f)
-
-    with open("encoded.lz", "rb") as inf:
-        blist = []
-        while (chunk := inf.read(2048)):
-            for byte in chunk:
-                blist.append(byte)
-        
-        bstr = Bitstring.from_bytes(blist)
-
-    dec = Decoder(config, frqs, bstr)
-    symbols = []
+if __name__ == "__main__": # Just for fun :-)
+    bs=Bitstring.from_bytes([195,19,125,179,112,236,70,85,217,133,85,36,228,173,
+                             93,95,249,219,92,237,37,126,215,42,228,29,46,31,188,
+                             176,178,255,143,46,104,49,99,63,122,222,187,105,110,
+                             27,209,109,104,120,181,252])
+    c=Configuration(4,256,32);f=Frequencies(c);d=Decoder(c,f,bs);f.populate();b=[]
     while True:
-        sym = dec.decode()
-        
-        if sym == config.eof_sym:
-            break
-        if sym == None:
-            print("Decoder Crash :-(")
-            break
-        
-        symbols.append(sym)
-
-    with open("tb_out.tex", "wb") as outf:
-        outf.write(bytes(symbols))
-
-if __name__ == "__main__":
-    tex("texbook.tex")
+        sym = d.decode()
+        if sym == c.eof_sym: print("".join(bytes(b).decode("utf8"))); break
+        b.append(sym)
 
