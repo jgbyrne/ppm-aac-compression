@@ -69,6 +69,11 @@ class Frequencies:
         for i in range(config.initial_order + 1):
             self.frq.append({})
 
+    def populate(self):
+        for i in range(self.config.num_symbols):
+            self.overwrite((), i, 1)
+        self.overwrite((), self.config.eof_sym, 1)
+
     def overwrite(self, ctx, sym, f):
         ofrq = self.frq[len(ctx)]
 
@@ -366,10 +371,15 @@ def tex(filename):
     enc = Encoder(config, frqs)
     in_length = 0
     with open(filename, "rb") as inf:
-        while (chunk := inf.read(2048)):
+        while True:
+            chunk = inf.read(2048)
+            if not chunk:
+                break
+
             for byte in chunk:
                 enc.encode(int(byte))
                 in_length += 1
+
         enc.encode(config.eof_sym)
 
     result = enc.conclude()
