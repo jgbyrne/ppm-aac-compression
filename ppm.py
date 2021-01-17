@@ -1,5 +1,8 @@
 from math import floor
 
+# Bitstring
+# | Stores encoded data
+# : Backing structure is a list of Integers in range [0, 255]
 class Bitstring:
     def __init__(self):
         self.bytes = []
@@ -42,6 +45,11 @@ class Bitstring:
     def __len__(self):
         return len(self.bytes) * 8
 
+# Configuration
+# | Static paramaters for Encoding and Decoding
+# : intial_order - maximum context length
+# : num_symbols  - size of alphabet (excluding EOF, ESC)
+# : magnitude    - number of working fixed-point places 
 class Configuration:
     def __init__(self, initial_order, num_symbols, magnitude):
         self.initial_order   = initial_order
@@ -59,6 +67,8 @@ class Configuration:
         self.half_mask       = 2 ** (magnitude - 1)
         self.chunk_mask      = self.full_mask - 1
 
+# Frequencies
+# | Adaptive table of (context, symbol) frequencies 
 class Frequencies:
     def __init__(self, config):
         self.config = config
@@ -92,6 +102,8 @@ class Frequencies:
         else:
             ctx_map[sym] = 1
 
+    # Get interval for given (ctx, sym) - used for encoding
+    # : order is implied by context length
     def interval(self, ctx, sym):
         order     = len(ctx)
         ofrq      = self.frq[order]
@@ -115,6 +127,8 @@ class Frequencies:
 
         return (left/acc, right/acc)
 
+    # Get interval for given (ctx, pt) - used for decoding
+    # : order is implied by context length
     def query(self, ctx, pt):
         order   = len(ctx)
         ofrq    = self.frq[order]
@@ -146,6 +160,8 @@ def sub_ctx(ctx, order):
     else:
         return tuple(ctx[-order:])
 
+# Encoder
+# | Produces a PPM encoding from a sequence of symbols
 class Encoder:
     def __init__(self, config, frqs):
         self.config   = config
@@ -159,7 +175,9 @@ class Encoder:
         self.straddle = 0
         self.bstr     = Bitstring()
 
-    def encode_symbol(self, ctx, sym):
+    # Internal symbol encoding routine
+    # : If this fails, sym_esc is encoded and the order is dropped
+    def _encode_symbol(self, ctx, sym):
         sym_int = self.frqs.interval(ctx, sym)
         if sym_int is None:
             return False
@@ -199,15 +217,18 @@ class Encoder:
 
         return True
 
+    # External interface to encode one symbol
+    # : Automatically cascades through orders
+    # : N.B. Order 0 encoding is assumed to never fail
     def encode(self, sym):
         order = top_order = len(self.ctx)
 
         while order >= 0:
             ctx = () if not order else tuple(self.ctx[-order:])
-            if self.encode_symbol(ctx, sym):
+            if self._encode_symbol(ctx, sym):
                 break
             else:
-                self.encode_symbol(ctx, self.config.esc_sym)
+                self._encode_symbol(ctx, self.config.esc_sym)
                 self.frqs.record(sub_ctx(self.ctx, order), self.config.esc_sym)
             order -= 1
 
@@ -218,6 +239,8 @@ class Encoder:
         if len(self.ctx) > self.config.initial_order:
             self.ctx.pop(0)
 
+    # External interface to finalise encoding and produce byte list
+    # : Final encoding is midpoint between high and low
     def conclude(self):
         mid = self.low + ((self.high - self.low) // 2)
         if self.straddle:
@@ -239,8 +262,10 @@ class Encoder:
             else:
                 self.bstr.push(0)
                 mid = (mid << 1)
-        return self.bstr
+        return self.bstr.bytes
 
+# Encoder
+# | Produces a sequence of symbols from a PPM encoding
 class Decoder:
     def __init__(self, config, frqs, bstr):
         self.config   = config
@@ -258,12 +283,14 @@ class Decoder:
         for _ in range(self.config.magnitude):
             self.shift()
 
+    # Reproduce a Lower or Upper normalisation
     def shift(self):
         nxt_bit = self.bstr.pop()
         self.num <<= 1
         self.num &= self.config.chunk_mask
         self.num += nxt_bit
 
+    # Reproduce a Middle normalisation
     def inflate(self):
         nxt_bit = self.bstr.pop()
         self.num <<= 1
@@ -273,7 +300,8 @@ class Decoder:
         else:
             self.num = (self.num - self.config.half) + nxt_bit
 
-    def decode_symbol(self, ctx):
+    # Internal symbol decoding routine
+    def _decode_symbol(self, ctx):
         span = self.high - self.low
         pt = (self.num - self.low) / span
         sym, low_pt, high_pt = self.frqs.query(ctx, pt) 
@@ -304,12 +332,15 @@ class Decoder:
 
         return sym
 
+    # External interface to decode one symbol
+    # : Automatically cascades through orders
+    # : N.B. Order 0 decoding is assumed to never fail
     def decode(self):
         order = top_order = len(self.ctx)
 
         while order >= 0:
             ctx = sub_ctx(self.ctx, order)
-            sym = self.decode_symbol(ctx)
+            sym = self._decode_symbol(ctx)
             if sym != self.config.esc_sym:
                 break
             else:
@@ -325,7 +356,8 @@ class Decoder:
 
         return sym
 
-if __name__ == "__main__": # Just for fun :-)
+# Just for fun :-)
+if __name__ == "__main__": 
     bs=Bitstring.from_bytes([195,19,125,179,112,236,70,85,217,133,85,36,228,173,
                              93,95,249,219,92,237,37,126,215,42,228,29,46,31,188,
                              176,178,255,143,46,104,49,99,63,122,222,187,105,110,

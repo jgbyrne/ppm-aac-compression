@@ -27,10 +27,10 @@ def main():
     result = enc.conclude()
     out_l = len(result)
 
-    print("Compressed {} bytes (x{:.3f})".format(l, ((out_l / 8) / l)))
+    print("Compressed {} bytes (x{:.3f})".format(l, ((out_l) / l)))
 
     with open(filename.split('.')[0] + ".lz", "wb") as outf:
-        outf.write(bytes(result.bytes))
+        outf.write(bytes(result))
     return 0
 
 if __name__ == "__main__":
