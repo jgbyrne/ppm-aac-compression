@@ -1,7 +1,4 @@
 from math import floor
-import pprofile
-import copy
-import pprint
 
 class Bitstring:
     def __init__(self):
@@ -83,9 +80,7 @@ class Frequencies:
 
         ctx_map[sym] = f
 
-    def record(self, ctx, sym, debug=False):
-        if debug:
-            print("Recording {} with context {}".format(sym, ctx))
+    def record(self, ctx, sym):
         ofrq = self.frq[len(ctx)]
 
         ctx_map = ofrq.get(ctx)
@@ -97,7 +92,7 @@ class Frequencies:
         else:
             ctx_map[sym] = 1
 
-    def interval(self, ctx, sym, debug=False):
+    def interval(self, ctx, sym):
         order     = len(ctx)
         ofrq      = self.frq[order]
         ctx_map   = ofrq.get(ctx)
@@ -112,8 +107,6 @@ class Frequencies:
             if s == sym:
                 left  = acc
                 acc = right = acc + f
-                if debug:
-                    print("Matched Interval\t{}\t\t{}".format(left, right))
             else:
                 acc += f
 
@@ -122,7 +115,7 @@ class Frequencies:
 
         return (left/acc, right/acc)
 
-    def query(self, ctx, pt, debug=False):
+    def query(self, ctx, pt):
         order   = len(ctx)
         ofrq    = self.frq[order]
         ctx_map = ofrq.get(ctx)
@@ -131,7 +124,6 @@ class Frequencies:
             ctx_map = ofrq[ctx] = {self.config.esc_sym: 1}
 
         total  = sum(ctx_map.values())
-        if debug: print(pt, total)
         target = pt * total
 
         acc   = 0
@@ -143,8 +135,6 @@ class Frequencies:
             if nxt > target:
                 left  = acc
                 right = nxt
-                if debug:
-                    print("Matched Interval\t{}\t\t{}\t\t\t({})".format(left, right, target))
                 break
             acc = nxt
 
@@ -153,12 +143,8 @@ class Frequencies:
 def sub_ctx(ctx, order):
     if not order: 
         return ()
-    elif order <= len(ctx):
-        return tuple(ctx[-order:])
     else:
-        print("???", order)
-        raise ValueError
-
+        return tuple(ctx[-order:])
 
 class Encoder:
     def __init__(self, config, frqs):
@@ -173,28 +159,18 @@ class Encoder:
         self.straddle = 0
         self.bstr     = Bitstring()
 
-    def encode_symbol(self, ctx, sym, debug=False):
-        sym_int = self.frqs.interval(ctx, sym, debug=debug)
+    def encode_symbol(self, ctx, sym):
+        sym_int = self.frqs.interval(ctx, sym)
         if sym_int is None:
             return False
 
-        if debug:
-            print()
-            print("\t\t\t\t\t\t{}\t{}".format(self.low, self.high))
-
         low_pt, high_pt = sym_int
-        if debug:
-            print("Interval\t\t{:.5f}\t{:.5f} ".format(low_pt, high_pt))
 
         span = self.high - self.low
-        if debug: print(span)
         self.high = self.low + floor(span * high_pt)  - 1
         self.low  = self.low + floor(span * low_pt) + 1
         
         assert (self.high - self.low) > 0
-
-        if debug:
-            print("Encoder({})\t\t{}\t\t{}\t{}".format(len(ctx), sym, self.low, self.high))
 
         while True:
             if not self.high & self.config.half_mask:
@@ -223,21 +199,20 @@ class Encoder:
 
         return True
 
-    def encode(self, sym, debug=False):
+    def encode(self, sym):
         order = top_order = len(self.ctx)
-        if debug: print("Encode", sym, order)
 
         while order >= 0:
             ctx = () if not order else tuple(self.ctx[-order:])
-            if self.encode_symbol(ctx, sym, debug=debug):
+            if self.encode_symbol(ctx, sym):
                 break
             else:
-                self.encode_symbol(ctx, self.config.esc_sym, debug=debug)
-                self.frqs.record(sub_ctx(self.ctx, order), self.config.esc_sym, debug=debug)
+                self.encode_symbol(ctx, self.config.esc_sym)
+                self.frqs.record(sub_ctx(self.ctx, order), self.config.esc_sym)
             order -= 1
 
         for o in range(top_order + 1):
-            self.frqs.record(sub_ctx(self.ctx, o), sym, debug=debug)
+            self.frqs.record(sub_ctx(self.ctx, o), sym)
 
         self.ctx.append(sym)
         if len(self.ctx) > self.config.initial_order:
@@ -298,25 +273,15 @@ class Decoder:
         else:
             self.num = (self.num - self.config.half) + nxt_bit
 
-    def decode_symbol(self, ctx, debug=False):
-        if debug:
-            print()
-            print("({})\t\t{}\t{}".format(self.num, self.low, self.high))
-
+    def decode_symbol(self, ctx):
         span = self.high - self.low
         pt = (self.num - self.low) / span
-        sym, low_pt, high_pt = self.frqs.query(ctx, pt, debug=debug) 
-
-        if debug:
-            print("Interval\t\t{:.5f}\t{:.5f} ".format(low_pt, high_pt))
+        sym, low_pt, high_pt = self.frqs.query(ctx, pt) 
 
         self.high = self.low + floor(span * high_pt) - 1
         self.low  = self.low + floor(span * low_pt) + 1
         
         assert (self.high - self.low) > 0
-
-        if debug:
-            print("Decoder({})\t\t...{}\t{}\t{}".format(len(ctx), str(self.num)[-5:], self.low, self.high))
 
         while True:
             if not self.high & self.config.half_mask:
@@ -339,20 +304,20 @@ class Decoder:
 
         return sym
 
-    def decode(self, debug=False):
+    def decode(self):
         order = top_order = len(self.ctx)
 
         while order >= 0:
             ctx = sub_ctx(self.ctx, order)
-            sym = self.decode_symbol(ctx, debug=debug)
+            sym = self.decode_symbol(ctx)
             if sym != self.config.esc_sym:
                 break
             else:
-                self.frqs.record(sub_ctx(self.ctx, order), self.config.esc_sym, debug=debug)
+                self.frqs.record(sub_ctx(self.ctx, order), self.config.esc_sym)
             order -= 1
 
         for o in range(top_order + 1):
-            self.frqs.record(sub_ctx(self.ctx, o), sym, debug=debug)
+            self.frqs.record(sub_ctx(self.ctx, o), sym)
    
         self.ctx.append(sym)
         for i in range(len(self.ctx) - self.config.initial_order):
