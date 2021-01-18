@@ -9,24 +9,24 @@ class FreqTrie:
         self.root   = [{self.config.esc_sym: 1}, {}]
 
     def record(self, ctx, sym):
-        cur = self.root
-        l = len(ctx) - 1
-        for s in reversed(ctx):
-            if sym in cur[0]:
-                cur[0][sym] += 1
-            else:
-                cur[0][sym] = 1
-                if not l:
-                    cur[0][self.config.esc_sym] += 1
+        if sym in self.root[0]:
+            self.root[0][sym] += 1
+        else:
+            self.root[0][sym] = 1
+            self.root[0][self.config.esc_sym] += 1
 
-            if not l:
-                break
-            
+        cur = self.root
+        for s in reversed(ctx):
             nxt = cur[1].get(s)
             if nxt is None:
                 nxt = cur[1][s] = [{self.config.esc_sym: 1}, {}]
             cur = nxt
-            l -= 1
+
+            if sym in cur[0]:
+                cur[0][sym] += 1
+            else:
+                cur[0][sym] = 1
+                cur[0][self.config.esc_sym] += 1
 
     def get(self, ctx):
         cur = self.root
