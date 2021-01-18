@@ -1,5 +1,44 @@
 from math import floor
 
+# FreqTrie
+# | Stores context frequency
+class FreqTrie:
+    def __init__(self, config):
+        self.config = config
+        self.root   = [{self.config.esc_sym: 1}, {}]
+
+    def record(self, ctx, sym):
+        cur = self.root
+        for s in ctx + [None]:
+            if sym in cur[0]:
+                cur[0][sym] += 1
+            else:
+                cur[0][sym] = 1
+                cur[0][self.config.esc_sym] = 1
+
+            if s is None:
+                break
+
+            nxt = cur[1].get(s)
+            if nxt is None:
+                nxt = cur[1][s] = [{self.config.esc_sym: 1}, {}]
+            cur = nxt
+
+    def get(self, ctx):
+        cur = self.root
+        for s in ctx:
+            nxt = cur[1].get(s)
+            if nxt is None:
+                nxt = cur[1][s] = [{self.config.esc_sym: 1}, {}]
+            cur = nxt
+        return cur[0]
+
+    def __str__(self):
+        return str(self.root)
+
+    def __repr__(self):
+        return str(self.root)
+
 # Bitstring
 # | Stores encoded data
 # : Backing structure is a list of Integers in range [0, 255]
@@ -74,33 +113,17 @@ class Configuration:
 class Frequencies:
     def __init__(self, config):
         self.config = config
-        self.frq    = []
-        for i in range(config.initial_order + 1):
-            self.frq.append({})
+        self.frq    = FreqTrie(config) 
 
     def record(self, ctx, sym):
-        ofrq = self.frq[len(ctx)]
-
-        ctx_map = ofrq.get(ctx)
-        if ctx_map is None:
-            ctx_map = ofrq[ctx] = {self.config.esc_sym: 1}
-
-        if sym in ctx_map: 
-            ctx_map[sym] += 1
-        else:
-            ctx_map[sym] = 1 
-            ctx_map[self.config.esc_sym] += 1 
+        self.frq.record(ctx, sym)
 
     # Get interval for given (ctx, sym) - used for encoding
     def interval(self, order, ctx, sym, exclude):
         if order == -1:
             return (True, sym / self.config.normal_symbols, (sym + 1) / self.config.normal_symbols)
 
-        ofrq      = self.frq[order]
-        ctx_map   = ofrq.get(ctx)
-
-        if ctx_map is None:
-            ctx_map = ofrq[ctx] = {self.config.esc_sym: 1}
+        ctx_map = self.frq.get(ctx)
 
         acc   = 0
         left  = 0
@@ -127,12 +150,8 @@ class Frequencies:
             sym  = floor(pt * self.config.normal_symbols)
             return (sym, sym / self.config.normal_symbols, (sym + 1) / self.config.normal_symbols, exclude)
 
-        ofrq    = self.frq[order]
-        ctx_map = ofrq.get(ctx)
-
-        if ctx_map is None:
-            ctx_map = ofrq[ctx] = {self.config.esc_sym: 1}
-
+        ctx_map = self.frq.get(ctx)
+        
         acc   = 0
         pts = []
         for s, f in ctx_map.items():
@@ -151,9 +170,9 @@ class Frequencies:
 
 def sub_ctx(ctx, order):
     if order < 1: 
-        return ()
+        return []
     else:
-        return tuple(ctx[-order:])
+        return ctx[-order:]
 
 # Encoder
 # | Produces a PPM encoding from a sequence of symbols
