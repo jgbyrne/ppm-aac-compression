@@ -1,22 +1,21 @@
 from math import floor
-from pprint import pprint
 
 # FreqTrie
-# | Stores context frequency
+# | Stores context frequencies
 class FreqTrie:
     def __init__(self, config):
         self.config = config
-        self.root   = [{self.config.esc_sym: 1}, {}]
+        self.root   = [{self.config.esc_sym: 50}, {}]
 
+    # Record an instance of a context and a symbol in the trie
     def record(self, ctx, sym):
         if sym in self.root[0]:
             self.root[0][sym] += 1
         else:
             self.root[0][sym] = 1
-            self.root[0][self.config.esc_sym] += 1
 
         cur = self.root
-        for s in reversed(ctx):
+        for i, s in enumerate(reversed(ctx)):
             nxt = cur[1].get(s)
             if nxt is None:
                 nxt = cur[1][s] = [{self.config.esc_sym: 1}, {}]
@@ -26,8 +25,10 @@ class FreqTrie:
                 cur[0][sym] += 1
             else:
                 cur[0][sym] = 1
-                cur[0][self.config.esc_sym] += 1
+                if len(cur[0]) > 2:
+                    cur[0][self.config.esc_sym] += (6 - i) * 1/4
 
+    # Get the frequencies at a given context
     def get(self, ctx):
         cur = self.root
         for s in reversed(ctx):
@@ -172,6 +173,7 @@ class Frequencies:
             if target < pt[2]:
                 return (pt[0], pt[1]/acc, pt[2]/acc, exclude)
 
+# Get the sub-context of a context for a given order 
 def sub_ctx(ctx, order):
     if order < 1: 
         return []
@@ -251,7 +253,6 @@ class Encoder:
             order -= 1
 
         self.frqs.record(self.ctx, sym)
-
         self.ctx.append(sym)
         if len(self.ctx) > self.config.initial_order:
             self.ctx.pop(0)
@@ -259,7 +260,6 @@ class Encoder:
     # External interface to finalise encoding and produce byte list
     # : Final encoding is midpoint between high and low
     def conclude(self):
-        pprint(self.frqs.frq.root)
         mid = self.low + ((self.high - self.low) // 2)
         if self.straddle:
             if mid & self.config.half_mask:
@@ -370,9 +370,10 @@ class Decoder:
 
 # Just for fun :-)
 if __name__ == "__main__": 
-    bs=Bitstring.from_bytes([194,163,205,236,240,108,218,96,210,116,137,86,171,150,190,
-                             125,9,34,224,133,1,247,255,226,95,112,122,42,135,216,224,
-                             51,87,161,161,145,237,198,15,173,26,224,196,216,43,248])
+    bs=Bitstring.from_bytes([194,211,251,147,246,112,90,131,148,169,37,44,
+                             18,201,102,30,163,204,33,10,51,228,173,42,215,
+                             53,136,219,177,209,255,134,186,122,102,35,139,
+                             106,102,108,63,107,65,129,127,164,143,224])
     c=Configuration(5,256,32);f=Frequencies(c);d=Decoder(c,f,bs);b=[]
     while True:
         sym = d.decode()

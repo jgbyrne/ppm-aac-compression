@@ -29,7 +29,7 @@ def main():
     result = enc.conclude()
     out_l = len(result)
 
-    print("Compressed {} bytes (x{:.3f})".format(l, ((out_l) / l)))
+    print("Compressed {} bytes in {} (x{:.3f})".format(l, out_l, ((out_l) / l)))
 
     with open(filename.split('.')[0] + ".lz", "wb") as outf:
         outf.write(bytes(result))
