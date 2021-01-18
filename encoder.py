@@ -8,21 +8,23 @@ def main():
         print("python encoder.py <filename>")
         return 1
 
-    config = ppm.Configuration(4, 256, 32)
+    config = ppm.Configuration(5, 256, 32)
     frqs   = ppm.Frequencies(config)
     enc    = ppm.Encoder(config, frqs)
-    frqs.populate()
     
-    l = 0
+    symbols = []
     with open(filename, 'rb') as inf:
         while True:
             chunk = inf.read(2048)
             if not chunk: break
 
             for byte in chunk:
-                enc.encode(int(byte)); l += 1
+                symbols.append(int(byte))
+    l = len(symbols)
 
-        enc.encode(config.eof_sym)
+    symbols.append(config.eof_sym)
+    for sym in symbols:
+        enc.encode(sym)
 
     result = enc.conclude()
     out_l = len(result)

@@ -8,10 +8,9 @@ def main():
         print("python decoder.py <filename>")
         return 1
 
-    config = ppm.Configuration(4, 256, 32)
+    config = ppm.Configuration(5, 256, 32)
     frqs   = ppm.Frequencies(config)
     enc    = ppm.Encoder(config, frqs)
-    frqs.populate()
 
     with open(filename, 'rb') as inf:
         in_bytes = []

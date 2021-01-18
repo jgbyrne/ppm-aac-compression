@@ -48,14 +48,16 @@ class Bitstring:
 # Configuration
 # | Static paramaters for Encoding and Decoding
 # : intial_order - maximum context length
-# : num_symbols  - size of alphabet (excluding EOF, ESC)
+# : alphabet     - size of alphabet (excluding EOF, ESC)
 # : magnitude    - number of working fixed-point places 
 class Configuration:
-    def __init__(self, initial_order, num_symbols, magnitude):
+    def __init__(self, initial_order, alphabet, magnitude):
         self.initial_order   = initial_order
-        self.num_symbols     = num_symbols
-        self.eof_sym         = num_symbols
-        self.esc_sym         = num_symbols + 1
+        self.eof_sym         = alphabet
+        self.esc_sym         = alphabet + 1
+
+        self.normal_symbols  = alphabet + 1
+        self.symbol_count    = alphabet + 2
 
         self.magnitude       = magnitude
         self.max             = 2 ** magnitude
@@ -76,20 +78,6 @@ class Frequencies:
         for i in range(config.initial_order + 1):
             self.frq.append({})
 
-    def populate(self):
-        for i in range(self.config.num_symbols):
-            self.overwrite((), i, 1)
-        self.overwrite((), self.config.eof_sym, 1)
-
-    def overwrite(self, ctx, sym, f):
-        ofrq = self.frq[len(ctx)]
-
-        ctx_map = ofrq.get(ctx)
-        if ctx_map is None:
-            ctx_map = ofrq[ctx] = {self.config.esc_sym: 1}
-
-        ctx_map[sym] = f
-
     def record(self, ctx, sym):
         ofrq = self.frq[len(ctx)]
 
@@ -100,12 +88,14 @@ class Frequencies:
         if sym in ctx_map: 
             ctx_map[sym] += 1
         else:
-            ctx_map[sym] = 1
+            ctx_map[sym] = 1 
+            ctx_map[self.config.esc_sym] += 1 
 
     # Get interval for given (ctx, sym) - used for encoding
-    # : order is implied by context length
-    def interval(self, ctx, sym):
-        order     = len(ctx)
+    def interval(self, order, ctx, sym, exclude):
+        if order == -1:
+            return (True, sym / self.config.normal_symbols, (sym + 1) / self.config.normal_symbols)
+
         ofrq      = self.frq[order]
         ctx_map   = ofrq.get(ctx)
 
@@ -116,6 +106,10 @@ class Frequencies:
         left  = 0
         right = 0
         for i, (s, f) in enumerate(ctx_map.items()):
+            if s != self.config.esc_sym:
+                if s in exclude:
+                    continue
+                exclude.add(s)
             if s == sym:
                 left  = acc
                 acc = right = acc + f
@@ -123,39 +117,40 @@ class Frequencies:
                 acc += f
 
         if not right:
-            return None
+            return (False, exclude)
 
-        return (left/acc, right/acc)
+        return (True, left/acc, right/acc)
 
     # Get interval for given (ctx, pt) - used for decoding
-    # : order is implied by context length
-    def query(self, ctx, pt):
-        order   = len(ctx)
+    def query(self, order, ctx, pt, exclude):
+        if order == -1:
+            sym  = floor(pt * self.config.normal_symbols)
+            return (sym, sym / self.config.normal_symbols, (sym + 1) / self.config.normal_symbols, exclude)
+
         ofrq    = self.frq[order]
         ctx_map = ofrq.get(ctx)
 
         if ctx_map is None:
             ctx_map = ofrq[ctx] = {self.config.esc_sym: 1}
 
-        total  = sum(ctx_map.values())
-        target = pt * total
-
         acc   = 0
-        left  = 0
-        right = 0
-        sym   = None
-        for i, (sym, f) in enumerate(ctx_map.items()):
+        pts = []
+        for s, f in ctx_map.items():
+            if s != self.config.esc_sym:
+                if s in exclude:
+                    continue
+                exclude.add(s)
             nxt = acc + f
-            if nxt > target:
-                left  = acc
-                right = nxt
-                break
-            acc = nxt
+            pts.append((s, acc, nxt))
+            acc = nxt 
 
-        return (sym, left/total, right/total)
+        target = pt * acc
+        for pt in pts:
+            if target < pt[2]:
+                return (pt[0], pt[1]/acc, pt[2]/acc, exclude)
 
 def sub_ctx(ctx, order):
-    if not order: 
+    if order < 1: 
         return ()
     else:
         return tuple(ctx[-order:])
@@ -177,18 +172,16 @@ class Encoder:
 
     # Internal symbol encoding routine
     # : If this fails, sym_esc is encoded and the order is dropped
-    def _encode_symbol(self, ctx, sym):
-        sym_int = self.frqs.interval(ctx, sym)
-        if sym_int is None:
-            return False
+    def _encode_symbol(self, order, ctx, sym, exclude):
+        sym_int = self.frqs.interval(order, ctx, sym, exclude)
+        if not sym_int[0]:
+            return sym_int # new exclude
 
-        low_pt, high_pt = sym_int
+        _, low_pt, high_pt = sym_int
 
         span = self.high - self.low
         self.high = self.low + floor(span * high_pt)  - 1
         self.low  = self.low + floor(span * low_pt) + 1
-        
-        assert (self.high - self.low) > 0
 
         while True:
             if not self.high & self.config.half_mask:
@@ -215,21 +208,24 @@ class Encoder:
             else:
                 break
 
-        return True
+        return (True,)
 
     # External interface to encode one symbol
     # : Automatically cascades through orders
-    # : N.B. Order 0 encoding is assumed to never fail
     def encode(self, sym):
         order = top_order = len(self.ctx)
 
-        while order >= 0:
-            ctx = () if not order else tuple(self.ctx[-order:])
-            if self._encode_symbol(ctx, sym):
+        exclude = set()
+        while order >= -1:
+            ctx = sub_ctx(self.ctx, order) 
+            enc_res = self._encode_symbol(order, ctx, sym, exclude.copy())
+            if enc_res[0]:
                 break
             else:
-                self._encode_symbol(ctx, self.config.esc_sym)
-                self.frqs.record(sub_ctx(self.ctx, order), self.config.esc_sym)
+                self._encode_symbol(order, ctx, self.config.esc_sym, exclude)
+                #self.frqs.record(sub_ctx(self.ctx, order), self.config.esc_sym)
+
+            exclude = enc_res[1]
             order -= 1
 
         for o in range(top_order + 1):
@@ -301,15 +297,13 @@ class Decoder:
             self.num = (self.num - self.config.half) + nxt_bit
 
     # Internal symbol decoding routine
-    def _decode_symbol(self, ctx):
+    def _decode_symbol(self, order, ctx, exclude):
         span = self.high - self.low
         pt = (self.num - self.low) / span
-        sym, low_pt, high_pt = self.frqs.query(ctx, pt) 
+        sym, low_pt, high_pt, exclude = self.frqs.query(order, ctx, pt, exclude) 
 
         self.high = self.low + floor(span * high_pt) - 1
         self.low  = self.low + floor(span * low_pt) + 1
-        
-        assert (self.high - self.low) > 0
 
         while True:
             if not self.high & self.config.half_mask:
@@ -330,39 +324,35 @@ class Decoder:
             else:
                 break
 
-        return sym
+        return (sym, exclude)
 
     # External interface to decode one symbol
     # : Automatically cascades through orders
-    # : N.B. Order 0 decoding is assumed to never fail
     def decode(self):
         order = top_order = len(self.ctx)
-
-        while order >= 0:
+        exclude = set()
+        while order >= -1:
             ctx = sub_ctx(self.ctx, order)
-            sym = self._decode_symbol(ctx)
+            sym, exclude = self._decode_symbol(order, ctx, exclude)
             if sym != self.config.esc_sym:
                 break
-            else:
-                self.frqs.record(sub_ctx(self.ctx, order), self.config.esc_sym)
             order -= 1
 
         for o in range(top_order + 1):
             self.frqs.record(sub_ctx(self.ctx, o), sym)
    
         self.ctx.append(sym)
-        for i in range(len(self.ctx) - self.config.initial_order):
+        if len(self.ctx) > self.config.initial_order:
             self.ctx.pop(0)
 
         return sym
 
 # Just for fun :-)
 if __name__ == "__main__": 
-    bs=Bitstring.from_bytes([195,19,125,179,112,236,70,85,217,133,85,36,228,173,
-                             93,95,249,219,92,237,37,126,215,42,228,29,46,31,188,
-                             176,178,255,143,46,104,49,99,63,122,222,187,105,110,
-                             27,209,109,104,120,181,252])
-    c=Configuration(4,256,32);f=Frequencies(c);d=Decoder(c,f,bs);f.populate();b=[]
+    bs=Bitstring.from_bytes([194,163,205,236,240,108,218,96,210,116,137,86,171,150,190,
+                             125,9,34,224,133,1,247,255,226,95,112,122,42,135,216,224,
+                             51,87,161,161,145,237,198,15,173,26,224,196,216,43,248])
+    c=Configuration(5,256,32);f=Frequencies(c);d=Decoder(c,f,bs);b=[]
     while True:
         sym = d.decode()
         if sym == c.eof_sym: print("".join(bytes(b).decode("utf8"))); break
