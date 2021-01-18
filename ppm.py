@@ -1,4 +1,5 @@
 from math import floor
+from pprint import pprint
 
 # FreqTrie
 # | Stores context frequency
@@ -9,24 +10,27 @@ class FreqTrie:
 
     def record(self, ctx, sym):
         cur = self.root
-        for s in ctx + [None]:
+        l = len(ctx) - 1
+        for s in reversed(ctx):
             if sym in cur[0]:
                 cur[0][sym] += 1
             else:
                 cur[0][sym] = 1
-                cur[0][self.config.esc_sym] = 1
+                if not l:
+                    cur[0][self.config.esc_sym] += 1
 
-            if s is None:
+            if not l:
                 break
-
+            
             nxt = cur[1].get(s)
             if nxt is None:
                 nxt = cur[1][s] = [{self.config.esc_sym: 1}, {}]
             cur = nxt
+            l -= 1
 
     def get(self, ctx):
         cur = self.root
-        for s in ctx:
+        for s in reversed(ctx):
             nxt = cur[1].get(s)
             if nxt is None:
                 nxt = cur[1][s] = [{self.config.esc_sym: 1}, {}]
@@ -242,13 +246,11 @@ class Encoder:
                 break
             else:
                 self._encode_symbol(order, ctx, self.config.esc_sym, exclude)
-                #self.frqs.record(sub_ctx(self.ctx, order), self.config.esc_sym)
 
             exclude = enc_res[1]
             order -= 1
 
-        for o in range(top_order + 1):
-            self.frqs.record(sub_ctx(self.ctx, o), sym)
+        self.frqs.record(self.ctx, sym)
 
         self.ctx.append(sym)
         if len(self.ctx) > self.config.initial_order:
@@ -257,6 +259,7 @@ class Encoder:
     # External interface to finalise encoding and produce byte list
     # : Final encoding is midpoint between high and low
     def conclude(self):
+        pprint(self.frqs.frq.root)
         mid = self.low + ((self.high - self.low) // 2)
         if self.straddle:
             if mid & self.config.half_mask:
@@ -357,9 +360,8 @@ class Decoder:
                 break
             order -= 1
 
-        for o in range(top_order + 1):
-            self.frqs.record(sub_ctx(self.ctx, o), sym)
-   
+        self.frqs.record(self.ctx, sym)
+
         self.ctx.append(sym)
         if len(self.ctx) > self.config.initial_order:
             self.ctx.pop(0)
