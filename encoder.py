@@ -8,7 +8,7 @@ def main():
         print("python encoder.py <filename>")
         return 1
 
-    config = ppm.Configuration(5, 129, 32)
+    config = ppm.Configuration(5, 66, 32)
     frqs   = ppm.Frequencies(config)
     enc    = ppm.Encoder(config, frqs)
     
@@ -18,11 +18,19 @@ def main():
             chunk = inf.read(2048)
             if not chunk: break
             for byte in chunk:
-                if byte >= 128:
-                    symbols.append(128)
-                    symbols.append(int(byte) - 128)
+                s = int(byte)
+                if s < 64:
+                    symbols.append(64)
+                    symbols.append(s)
+                elif 128 <= s < 192:
+                    symbols.append(64)
+                    symbols.append(65)
+                    symbols.append(s - 128)
+                elif s >= 192:
+                    symbols.append(65)
+                    symbols.append(s - 192)
                 else:
-                    symbols.append(int(byte))
+                    symbols.append(s - 64)
     l = len(symbols)
 
     symbols.append(config.eof_sym)

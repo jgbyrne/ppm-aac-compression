@@ -8,7 +8,7 @@ def main():
         print("python decoder.py <filename>")
         return 1
 
-    config = ppm.Configuration(5, 129, 32)
+    config = ppm.Configuration(5, 66, 32)
     frqs   = ppm.Frequencies(config)
     enc    = ppm.Encoder(config, frqs)
 
@@ -23,19 +23,23 @@ def main():
 
     dec = ppm.Decoder(config, frqs, bitstring)
     out_bytes = []
-    shift = False
+    decr = -64
     while True:
         sym = dec.decode()
         if sym == config.eof_sym:
             break
-        elif sym == 128:
-            shift = True
+        elif sym == 64:
+            decr += 64
+            continue
+        elif sym == 65:
+            decr -= 128
             continue
         elif sym == None:
             print("Decoder Crash :-(")
             return 1
-        out_bytes.append(sym + (128 if shift else 0))
-        shift = False
+
+        out_bytes.append(sym - decr)
+        decr = -64 
 
     with open(filename.split('.')[0] + "-decoded.tex", 'wb') as outf:
         outf.write(bytes(out_bytes))
