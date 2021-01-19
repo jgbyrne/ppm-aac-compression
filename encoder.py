@@ -11,7 +11,10 @@ def main():
     config = ppm.Configuration(5, 66, 32)
     frqs   = ppm.Frequencies(config)
     enc    = ppm.Encoder(config, frqs)
-    
+
+    # Build list of symbols to encode from raw bytes
+    # 0..255 byte space is mapped into 0..63 symbol space
+    # Shift symbols 64 and 65 are used to achieve this 
     symbols = []
     with open(filename, 'rb') as inf:
         while True:

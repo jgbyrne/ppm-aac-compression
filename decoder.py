@@ -21,6 +21,8 @@ def main():
                 in_bytes.append(byte)
         bitstring = ppm.Bitstring.from_bytes(in_bytes)
 
+    # Decode compressed file
+    # Remaps from 0..63 space back into 0..255 byte space
     dec = ppm.Decoder(config, frqs, bitstring)
     out_bytes = []
     decr = -64
