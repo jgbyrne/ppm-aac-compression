@@ -45,7 +45,7 @@ def main():
 
     print("Compressed {} bytes in {} (x{:.3f})".format(l, out_l, ((out_l) / l)))
 
-    with open(filename.split('.')[0] + ".lz", "wb") as outf:
+    with open(filename.rsplit('.', 1)[0] + ".lz", "wb") as outf:
         outf.write(bytes(result))
     return 0
 

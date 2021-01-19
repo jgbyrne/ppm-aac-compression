@@ -43,7 +43,7 @@ def main():
         out_bytes.append(sym - decr)
         decr = -64 
 
-    with open(filename.split('.')[0] + "-decoded.tex", 'wb') as outf:
+    with open(filename.rsplit('.', 1)[0] + "-decoded.tex", 'wb') as outf:
         outf.write(bytes(out_bytes))
     
 if __name__ == "__main__":
